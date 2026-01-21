@@ -1,0 +1,547 @@
+#!/bin/sh
+set -e
+
+# Kodus CLI installer
+# Installs Kodus CLI if not present, authenticates with team key if provided,
+# and installs the kodus-review skill into project skill directories for Cursor,
+# Claude Code, and other supported tools.
+
+# Colors (only if stdout is a TTY)
+if [ -t 1 ]; then
+  BOLD="\033[1m"
+  GREEN="\033[32m"
+  YELLOW="\033[33m"
+  GRAY="\033[37m"
+  DARK="\033[90m"
+  CYAN="\033[36m"
+  RESET="\033[0m"
+else
+  BOLD=""
+  GREEN=""
+  YELLOW=""
+  GRAY=""
+  DARK=""
+  CYAN=""
+  RESET=""
+fi
+
+print_header() {
+  printf "${BOLD}%s${RESET}\n" "$1"
+}
+
+print_ascii() {
+  B="${CYAN}"
+  R="${RESET}"
+
+printf '%s\n' \
+' ██╗  ██╗ ██████╗ ██████╗ ██╗   ██╗ ███████╗' \
+' ██║ ██╔╝██╔═══██╗██╔══██╗██║   ██║ ██╔════╝' \
+' █████╔╝ ██║   ██║██║  ██║██║   ██║ ███████╗' \
+' ██╔═██╗ ██║   ██║██║  ██║██║   ██║ ╚════██║' \
+' ██║  ██╗╚██████╔╝██████╔╝╚██████╔╝ ███████║' \
+' ╚═╝  ╚═╝ ╚═════╝ ╚═════╝  ╚═════╝  ╚══════╝'
+
+  printf "\n"
+  printf "  ${DARK}AI-powered code review from your terminal${R}\n"
+}
+
+print_success() {
+  printf "${GREEN}✓${RESET} %s\n" "$1"
+}
+
+print_info() {
+  printf "${YELLOW}→${RESET} %s\n" "$1"
+}
+
+print_error() {
+  printf "${BOLD}Error:${RESET} %s\n" "$1" >&2
+}
+
+print_dim() {
+  printf "${DARK}%s${RESET}\n" "$1"
+}
+
+# Parse arguments
+TEAM_KEY=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --team-key)
+      TEAM_KEY="$2"
+      shift 2
+      ;;
+    --team-key=*)
+      TEAM_KEY="${1#*=}"
+      shift
+      ;;
+    -h|--help)
+      echo "Usage: curl -fsSL <url> | bash [options]"
+      echo ""
+      echo "Options:"
+      echo "  --team-key <key>  Authenticate with team key after installation"
+      echo "  -h, --help        Show this help message"
+      exit 0
+      ;;
+    *)
+      print_error "Unknown option: $1"
+      echo "Use -h or --help for usage information"
+      exit 1
+      ;;
+  esac
+done
+
+print_ascii
+printf "\n"
+
+print_info "Checking Kodus CLI installation..."
+
+# Check if kodus is installed
+if command -v kodus >/dev/null 2>&1; then
+  KODUS_VERSION=$(kodus --version 2>/dev/null || echo "unknown")
+  print_success "Kodus CLI is already installed (${KODUS_VERSION})"
+else
+  print_info "Installing Kodus CLI..."
+  
+  # Detect OS
+  OS="$(uname -s)"
+  case "${OS}" in
+    Linux*)     MACHINE=Linux;;
+    Darwin*)    MACHINE=Mac;;
+    *)          MACHINE="UNKNOWN:${OS}"
+  esac
+
+  if [ "$MACHINE" = "UNKNOWN:${OS}" ]; then
+    print_error "Unsupported OS: ${OS}"
+    exit 1
+  fi
+
+  # Install via npm
+  if command -v npm >/dev/null 2>&1; then
+    npm install -g @kodus/cli
+    print_success "Kodus CLI installed successfully"
+  else
+    print_error "npm is required but not installed"
+    print_dim "Please install Node.js from https://nodejs.org"
+    exit 1
+  fi
+fi
+
+printf "\n"
+
+# Authenticate with team key if provided
+if [ -n "$TEAM_KEY" ]; then
+  print_info "Authenticating with team key..."
+  if kodus auth team-key --key "$TEAM_KEY"; then
+    print_success "Authenticated successfully"
+  else
+    print_error "Authentication failed"
+    exit 1
+  fi
+  printf "\n"
+else
+  print_dim "No team key provided. Run later with: kodus auth team-key --key <your-key>"
+  printf "\n"
+fi
+
+print_info "Installing Kodus skills..."
+
+# Prepare kodus-review skill content from local file
+if [ -f "./skills/kodus-review/SKILL.md" ]; then
+  SKILL_CONTENT_REVIEW=$(cat "./skills/kodus-review/SKILL.md")
+elif [ -f "${PWD}/skills/kodus-review/SKILL.md" ]; then
+  SKILL_CONTENT_REVIEW=$(cat "${PWD}/skills/kodus-review/SKILL.md")
+else
+  # Fallback: use skill content inline
+  SKILL_CONTENT_REVIEW='---
+name: kodus-review
+description: Use the Kodus CLI to run code reviews and apply fixes based on CLI output. Trigger when asked to review code with Kodus, run `kodus review`, use `--prompt-only`, or act on Kodus review results.
+---
+
+# Kodus Review
+
+## Goal
+
+Use the Kodus CLI to review changes and resolve issues. Prefer machine-friendly output via `--prompt-only`, then apply fixes in code.
+
+## Workflow
+
+1) Ensure Kodus CLI is available.
+- Run `kodus --help` to confirm.
+- If missing, ask the user to install the CLI and stop.
+
+2) Ensure authentication if required.
+- If `kodus review` fails with auth, run `kodus auth login` (interactive) and retry.
+- For team keys, use `kodus auth team-key --key <key>` when provided by the user.
+
+3) Run review using prompt-only output.
+- Default: `kodus review --prompt-only`.
+- If user specifies files: `kodus review --prompt-only <files...>`.
+- If user asks for staged/commit/branch: add `--staged`, `--commit <sha>`, or `--branch <name>`.
+- If user wants fast: add `--fast`.
+
+4) Parse results and apply fixes.
+- Use the output to locate files and lines.
+- Make minimal, targeted changes to address each issue.
+- If an issue is not actionable or is a false positive, explain why and skip.
+
+5) Re-run review if needed.
+- After fixes, rerun `kodus review --prompt-only` to confirm issues are resolved.
+
+## Notes
+
+- Prefer `--prompt-only` for predictable parsing.
+- Avoid `--interactive` unless the user explicitly asks.
+- Use `review --help` to understand review possibilities
+'
+fi
+
+# Prepare kodus-pr-suggestions-resolver skill content from local file
+if [ -f "./skills/kodus-pr-suggestions-resolver/SKILL.md" ]; then
+  SKILL_CONTENT_RESOLVE=$(cat "./skills/kodus-pr-suggestions-resolver/SKILL.md")
+elif [ -f "${PWD}/skills/kodus-pr-suggestions-resolver/SKILL.md" ]; then
+  SKILL_CONTENT_RESOLVE=$(cat "${PWD}/skills/kodus-pr-suggestions-resolver/SKILL.md")
+else
+  # Fallback: use skill content inline
+  SKILL_CONTENT_RESOLVE='---
+name: kodus-pr-suggestions-resolver
+description: Run Kodus CLI PR suggestions and apply fixes with judgment. Use when asked to fetch `kodus pr suggestions` for a PR URL/number/repo-id, analyze each suggestion against the PR intent, implement reasonable fixes, run build/tests when available, and report what was done or skipped.
+---
+
+# Kodus PR Suggestions Resolver
+
+## Overview
+
+Fetch PR suggestions via Kodus CLI, triage each suggestion against the PR goal, apply safe fixes, then validate with build/tests and report results.
+
+## Workflow
+
+### 1) Collect the PR target
+
+- If the user did not provide a target, ask for one of:
+  - `--pr-url <url>`
+  - `--pr-number <number>` with `--repo-id <id>`
+- If multiple are provided, prefer `--pr-url`.
+
+### 2) Run Kodus suggestions
+
+Use:
+
+```
+kodus pr suggestions --pr-url <url>
+```
+
+Or when the URL is not available:
+
+```
+kodus pr suggestions --pr-number <number> --repo-id <id>
+```
+
+### 3) Analyze suggestions with PR intent in mind
+
+- Extract or confirm the PR goal from the user or PR context.
+- For each suggestion:
+  - Verify it does not conflict with the PR objective.
+  - Prefer small, low-risk changes that improve the PR without changing scope.
+  - Skip suggestions that are irrelevant, risky, or scope-expanding; note why.
+
+### 4) Apply fixes one by one
+
+- Make changes per accepted suggestion.
+- Keep edits minimal and focused.
+- If a suggestion is unclear, ask a clarifying question before changing code.
+
+### 5) Validate with build/tests (when available)
+
+- Run the most relevant build or tests for the edited area.
+- If no tests are available or running them is not possible, state that explicitly.
+
+### 6) Report results
+
+Provide a concise report covering:
+
+- Suggestions applied (with brief rationale).
+- Suggestions skipped (with reasons).
+- Tests/builds run and outcomes.
+- Remaining uncertainties or follow-ups needed.
+'
+fi
+
+OPTIONAL_INSTALLED=0
+
+install_skill() {
+  base_dir="$1"
+  label="$2"
+  skill_dirname="$3"
+  skill_content="$4"
+  skill_dir="$base_dir/$skill_dirname"
+  skill_file="$skill_dir/SKILL.md"
+  mkdir -p "$skill_dir"
+  printf "%s\n" "$skill_content" > "$skill_file"
+  print_success "$label $skill_dirname skill installed"
+  OPTIONAL_INSTALLED=$((OPTIONAL_INSTALLED + 1))
+}
+
+maybe_install_project_skill() {
+  base_dir="$1"
+  label="$2"
+  skill_dirname="$3"
+  skill_content="$4"
+  if [ -d "$base_dir" ]; then
+    install_skill "$base_dir" "$label" "$skill_dirname" "$skill_content"
+  fi
+}
+
+# Project skills (auto-detect)
+maybe_install_project_skill "${PWD}/.opencode/skill" "OpenCode" "kodus-review" "$SKILL_CONTENT_REVIEW"
+maybe_install_project_skill "${PWD}/.opencode/skill" "OpenCode" "kodus-pr-suggestions-resolver" "$SKILL_CONTENT_RESOLVE"
+maybe_install_project_skill "${PWD}/.claude/skills" "Claude Code" "kodus-review" "$SKILL_CONTENT_REVIEW"
+maybe_install_project_skill "${PWD}/.claude/skills" "Claude Code" "kodus-pr-suggestions-resolver" "$SKILL_CONTENT_RESOLVE"
+maybe_install_project_skill "${PWD}/.codex/skills" "Codex" "kodus-review" "$SKILL_CONTENT_REVIEW"
+maybe_install_project_skill "${PWD}/.codex/skills" "Codex" "kodus-pr-suggestions-resolver" "$SKILL_CONTENT_RESOLVE"
+maybe_install_project_skill "${PWD}/.cursor/skills" "Cursor" "kodus-review" "$SKILL_CONTENT_REVIEW"
+maybe_install_project_skill "${PWD}/.cursor/skills" "Cursor" "kodus-pr-suggestions-resolver" "$SKILL_CONTENT_RESOLVE"
+maybe_install_project_skill "${PWD}/.agents/skills" "Amp" "kodus-review" "$SKILL_CONTENT_REVIEW"
+maybe_install_project_skill "${PWD}/.agents/skills" "Amp" "kodus-pr-suggestions-resolver" "$SKILL_CONTENT_RESOLVE"
+maybe_install_project_skill "${PWD}/.kilocode/skills" "Kilo Code" "kodus-review" "$SKILL_CONTENT_REVIEW"
+maybe_install_project_skill "${PWD}/.kilocode/skills" "Kilo Code" "kodus-pr-suggestions-resolver" "$SKILL_CONTENT_RESOLVE"
+maybe_install_project_skill "${PWD}/.roo/skills" "Roo Code" "kodus-review" "$SKILL_CONTENT_REVIEW"
+maybe_install_project_skill "${PWD}/.roo/skills" "Roo Code" "kodus-pr-suggestions-resolver" "$SKILL_CONTENT_RESOLVE"
+maybe_install_project_skill "${PWD}/.goose/skills" "Goose" "kodus-review" "$SKILL_CONTENT_REVIEW"
+maybe_install_project_skill "${PWD}/.goose/skills" "Goose" "kodus-pr-suggestions-resolver" "$SKILL_CONTENT_RESOLVE"
+maybe_install_project_skill "${PWD}/.gemini/skills" "Gemini CLI" "kodus-review" "$SKILL_CONTENT_REVIEW"
+maybe_install_project_skill "${PWD}/.gemini/skills" "Gemini CLI" "kodus-pr-suggestions-resolver" "$SKILL_CONTENT_RESOLVE"
+maybe_install_project_skill "${PWD}/.agent/skills" "Antigravity" "kodus-review" "$SKILL_CONTENT_REVIEW"
+maybe_install_project_skill "${PWD}/.agent/skills" "Antigravity" "kodus-pr-suggestions-resolver" "$SKILL_CONTENT_RESOLVE"
+maybe_install_project_skill "${PWD}/.github/skills" "GitHub Copilot" "kodus-review" "$SKILL_CONTENT_REVIEW"
+maybe_install_project_skill "${PWD}/.github/skills" "GitHub Copilot" "kodus-pr-suggestions-resolver" "$SKILL_CONTENT_RESOLVE"
+maybe_install_project_skill "${PWD}/skills" "Clawdbot" "kodus-review" "$SKILL_CONTENT_REVIEW"
+maybe_install_project_skill "${PWD}/skills" "Clawdbot" "kodus-pr-suggestions-resolver" "$SKILL_CONTENT_RESOLVE"
+maybe_install_project_skill "${PWD}/.factory/skills" "Droid" "kodus-review" "$SKILL_CONTENT_REVIEW"
+maybe_install_project_skill "${PWD}/.factory/skills" "Droid" "kodus-pr-suggestions-resolver" "$SKILL_CONTENT_RESOLVE"
+maybe_install_project_skill "${PWD}/.windsurf/skills" "Windsurf" "kodus-review" "$SKILL_CONTENT_REVIEW"
+maybe_install_project_skill "${PWD}/.windsurf/skills" "Windsurf" "kodus-pr-suggestions-resolver" "$SKILL_CONTENT_RESOLVE"
+
+# Claude Code (project commands)
+if [ -d "${PWD}/.claude" ]; then
+  CLAUDE_PROJECT_COMMAND_DIR="${PWD}/.claude/commands"
+  mkdir -p "$CLAUDE_PROJECT_COMMAND_DIR"
+  printf "%s\n" "$SKILL_CONTENT_REVIEW" > "$CLAUDE_PROJECT_COMMAND_DIR/kodus-review.md"
+  print_success "Claude project command installed (kodus-review)"
+  OPTIONAL_INSTALLED=$((OPTIONAL_INSTALLED + 1))
+  printf "%s\n" "$SKILL_CONTENT_RESOLVE" > "$CLAUDE_PROJECT_COMMAND_DIR/kodus-pr-suggestions-resolver.md"
+  print_success "Claude project command installed (kodus-pr-suggestions-resolver)"
+  OPTIONAL_INSTALLED=$((OPTIONAL_INSTALLED + 1))
+fi
+
+# Cursor (project commands)
+if [ -d "${PWD}/.cursor" ]; then
+  CURSOR_PROJECT_COMMAND_DIR="${PWD}/.cursor/commands"
+  mkdir -p "$CURSOR_PROJECT_COMMAND_DIR"
+  printf "%s\n" "$SKILL_CONTENT_REVIEW" > "$CURSOR_PROJECT_COMMAND_DIR/kodus-review.md"
+  print_success "Cursor project command installed (kodus-review)"
+  OPTIONAL_INSTALLED=$((OPTIONAL_INSTALLED + 1))
+  printf "%s\n" "$SKILL_CONTENT_RESOLVE" > "$CURSOR_PROJECT_COMMAND_DIR/kodus-pr-suggestions-resolver.md"
+  print_success "Cursor project command installed (kodus-pr-suggestions-resolver)"
+  OPTIONAL_INSTALLED=$((OPTIONAL_INSTALLED + 1))
+fi
+
+# Claude Code (personal skills directory, if detected)
+CLAUDE_SKILLS_DIR=""
+if [ -n "$CLAUDE_CODE_SKILLS_DIR" ]; then
+  CLAUDE_SKILLS_DIR="$CLAUDE_CODE_SKILLS_DIR"
+elif [ -d "$HOME/.claude/skills" ]; then
+  CLAUDE_SKILLS_DIR="$HOME/.claude/skills"
+elif [ -d "$HOME/.config/claude/skills" ]; then
+  CLAUDE_SKILLS_DIR="$HOME/.config/claude/skills"
+fi
+
+if [ -n "$CLAUDE_SKILLS_DIR" ]; then
+  install_skill "$CLAUDE_SKILLS_DIR" "Claude Code" "kodus-review" "$SKILL_CONTENT_REVIEW"
+  install_skill "$CLAUDE_SKILLS_DIR" "Claude Code" "kodus-pr-suggestions-resolver" "$SKILL_CONTENT_RESOLVE"
+fi
+
+# OpenCode (skills folder)
+if [ -d "$HOME/.config/opencode/skill" ]; then
+  install_skill "$HOME/.config/opencode/skill" "OpenCode" "kodus-review" "$SKILL_CONTENT_REVIEW"
+  install_skill "$HOME/.config/opencode/skill" "OpenCode" "kodus-pr-suggestions-resolver" "$SKILL_CONTENT_RESOLVE"
+fi
+
+# Codex (skills folder)
+if [ -d "$HOME/.codex/skills" ]; then
+  install_skill "$HOME/.codex/skills" "Codex" "kodus-review" "$SKILL_CONTENT_REVIEW"
+  install_skill "$HOME/.codex/skills" "Codex" "kodus-pr-suggestions-resolver" "$SKILL_CONTENT_RESOLVE"
+fi
+
+# Cursor (skills folder)
+if [ -d "$HOME/.cursor/skills" ]; then
+  install_skill "$HOME/.cursor/skills" "Cursor" "kodus-review" "$SKILL_CONTENT_REVIEW"
+  install_skill "$HOME/.cursor/skills" "Cursor" "kodus-pr-suggestions-resolver" "$SKILL_CONTENT_RESOLVE"
+fi
+
+# Amp (skills folder)
+if [ -d "$HOME/.config/agents/skills" ]; then
+  install_skill "$HOME/.config/agents/skills" "Amp" "kodus-review" "$SKILL_CONTENT_REVIEW"
+  install_skill "$HOME/.config/agents/skills" "Amp" "kodus-pr-suggestions-resolver" "$SKILL_CONTENT_RESOLVE"
+fi
+
+# Kilo Code (skills folder)
+if [ -d "$HOME/.kilocode/skills" ]; then
+  install_skill "$HOME/.kilocode/skills" "Kilo Code" "kodus-review" "$SKILL_CONTENT_REVIEW"
+  install_skill "$HOME/.kilocode/skills" "Kilo Code" "kodus-pr-suggestions-resolver" "$SKILL_CONTENT_RESOLVE"
+fi
+
+# Roo Code (skills folder)
+if [ -d "$HOME/.roo/skills" ]; then
+  install_skill "$HOME/.roo/skills" "Roo Code" "kodus-review" "$SKILL_CONTENT_REVIEW"
+  install_skill "$HOME/.roo/skills" "Roo Code" "kodus-pr-suggestions-resolver" "$SKILL_CONTENT_RESOLVE"
+fi
+
+# Goose (skills folder)
+if [ -d "$HOME/.config/goose/skills" ]; then
+  install_skill "$HOME/.config/goose/skills" "Goose" "kodus-review" "$SKILL_CONTENT_REVIEW"
+  install_skill "$HOME/.config/goose/skills" "Goose" "kodus-pr-suggestions-resolver" "$SKILL_CONTENT_RESOLVE"
+fi
+
+# Gemini CLI (skills folder)
+if [ -d "$HOME/.gemini/skills" ]; then
+  install_skill "$HOME/.gemini/skills" "Gemini CLI" "kodus-review" "$SKILL_CONTENT_REVIEW"
+  install_skill "$HOME/.gemini/skills" "Gemini CLI" "kodus-pr-suggestions-resolver" "$SKILL_CONTENT_RESOLVE"
+fi
+
+# Antigravity (skills folder)
+if [ -d "$HOME/.gemini/antigravity/skills" ]; then
+  install_skill "$HOME/.gemini/antigravity/skills" "Antigravity" "kodus-review" "$SKILL_CONTENT_REVIEW"
+  install_skill "$HOME/.gemini/antigravity/skills" "Antigravity" "kodus-pr-suggestions-resolver" "$SKILL_CONTENT_RESOLVE"
+fi
+
+# GitHub Copilot (skills folder)
+if [ -d "$HOME/.copilot/skills" ]; then
+  install_skill "$HOME/.copilot/skills" "GitHub Copilot" "kodus-review" "$SKILL_CONTENT_REVIEW"
+  install_skill "$HOME/.copilot/skills" "GitHub Copilot" "kodus-pr-suggestions-resolver" "$SKILL_CONTENT_RESOLVE"
+fi
+
+# Clawdbot (skills folder)
+if [ -d "$HOME/.clawdbot/skills" ]; then
+  install_skill "$HOME/.clawdbot/skills" "Clawdbot" "kodus-review" "$SKILL_CONTENT_REVIEW"
+  install_skill "$HOME/.clawdbot/skills" "Clawdbot" "kodus-pr-suggestions-resolver" "$SKILL_CONTENT_RESOLVE"
+fi
+
+# Droid (skills folder)
+if [ -d "$HOME/.factory/skills" ]; then
+  install_skill "$HOME/.factory/skills" "Droid" "kodus-review" "$SKILL_CONTENT_REVIEW"
+  install_skill "$HOME/.factory/skills" "Droid" "kodus-pr-suggestions-resolver" "$SKILL_CONTENT_RESOLVE"
+fi
+
+# Windsurf (skills folder)
+if [ -d "$HOME/.codeium/windsurf/skills" ]; then
+  install_skill "$HOME/.codeium/windsurf/skills" "Windsurf" "kodus-review" "$SKILL_CONTENT_REVIEW"
+  install_skill "$HOME/.codeium/windsurf/skills" "Windsurf" "kodus-pr-suggestions-resolver" "$SKILL_CONTENT_RESOLVE"
+fi
+
+# OpenCode (command folder)
+if command -v opencode >/dev/null 2>&1 || [ -d "$HOME/.config/opencode" ]; then
+  OPENCODE_COMMAND_DIR="$HOME/.config/opencode/command"
+  mkdir -p "$OPENCODE_COMMAND_DIR"
+  printf "%s\n" "$SKILL_CONTENT_REVIEW" > "$OPENCODE_COMMAND_DIR/kodus-review.md"
+  print_success "OpenCode command installed (kodus-review)"
+  OPTIONAL_INSTALLED=$((OPTIONAL_INSTALLED + 1))
+  printf "%s\n" "$SKILL_CONTENT_RESOLVE" > "$OPENCODE_COMMAND_DIR/kodus-pr-suggestions-resolver.md"
+  print_success "OpenCode command installed (kodus-pr-suggestions-resolver)"
+  OPTIONAL_INSTALLED=$((OPTIONAL_INSTALLED + 1))
+fi
+
+# Cursor (commands folder)
+if [ -d "$HOME/.cursor" ]; then
+  CURSOR_COMMAND_DIR="$HOME/.cursor/commands"
+  mkdir -p "$CURSOR_COMMAND_DIR"
+  printf "%s\n" "$SKILL_CONTENT_REVIEW" > "$CURSOR_COMMAND_DIR/kodus-review.md"
+  print_success "Cursor command installed (kodus-review)"
+  OPTIONAL_INSTALLED=$((OPTIONAL_INSTALLED + 1))
+  printf "%s\n" "$SKILL_CONTENT_RESOLVE" > "$CURSOR_COMMAND_DIR/kodus-pr-suggestions-resolver.md"
+  print_success "Cursor command installed (kodus-pr-suggestions-resolver)"
+  OPTIONAL_INSTALLED=$((OPTIONAL_INSTALLED + 1))
+fi
+
+# Claude Code (commands folder)
+if [ -d "$HOME/.claude" ] || [ -d "$HOME/.config/claude" ]; then
+  if [ -d "$HOME/.claude" ]; then
+    CLAUDE_COMMAND_DIR="$HOME/.claude/commands"
+  else
+    CLAUDE_COMMAND_DIR="$HOME/.config/claude/commands"
+  fi
+  mkdir -p "$CLAUDE_COMMAND_DIR"
+  printf "%s\n" "$SKILL_CONTENT_REVIEW" > "$CLAUDE_COMMAND_DIR/kodus-review.md"
+  print_success "Claude Code command installed (kodus-review)"
+  OPTIONAL_INSTALLED=$((OPTIONAL_INSTALLED + 1))
+  printf "%s\n" "$SKILL_CONTENT_RESOLVE" > "$CLAUDE_COMMAND_DIR/kodus-pr-suggestions-resolver.md"
+  print_success "Claude Code command installed (kodus-pr-suggestions-resolver)"
+  OPTIONAL_INSTALLED=$((OPTIONAL_INSTALLED + 1))
+fi
+
+# Windsurf (append to global_rules.md)
+MARKER_REVIEW="# Kodus Review"
+MARKER_RESOLVE="# Kodus PR Suggestions Resolver"
+if [ -d "$HOME/.codeium" ] || [ -d "$HOME/Library/Application Support/Windsurf" ]; then
+  WINDSURF_DIR="$HOME/.codeium/windsurf/memories"
+  RULES_FILE="$WINDSURF_DIR/global_rules.md"
+  mkdir -p "$WINDSURF_DIR"
+  if [ -f "$RULES_FILE" ] && grep -q "$MARKER_REVIEW" "$RULES_FILE"; then
+    print_success "Windsurf already updated (kodus-review)"
+  else
+    if [ -f "$RULES_FILE" ]; then
+      printf "\n" >> "$RULES_FILE"
+    fi
+    printf "%s\n\n" "$MARKER_REVIEW" >> "$RULES_FILE"
+    printf "%s\n" "$SKILL_CONTENT_REVIEW" >> "$RULES_FILE"
+    printf "\n" >> "$RULES_FILE"
+    print_success "Windsurf updated (kodus-review)"
+  fi
+  if [ -f "$RULES_FILE" ] && grep -q "$MARKER_RESOLVE" "$RULES_FILE"; then
+    print_success "Windsurf already updated (kodus-pr-suggestions-resolver)"
+  else
+    if [ -f "$RULES_FILE" ]; then
+      printf "\n" >> "$RULES_FILE"
+    fi
+    printf "%s\n\n" "$MARKER_RESOLVE" >> "$RULES_FILE"
+    printf "%s\n" "$SKILL_CONTENT_RESOLVE" >> "$RULES_FILE"
+    printf "\n" >> "$RULES_FILE"
+    print_success "Windsurf updated (kodus-pr-suggestions-resolver)"
+  fi
+  OPTIONAL_INSTALLED=$((OPTIONAL_INSTALLED + 1))
+fi
+
+# Gemini CLI (TOML command format)
+if command -v gemini >/dev/null 2>&1 || [ -d "$HOME/.gemini" ]; then
+  GEMINI_DIR="$HOME/.gemini/commands"
+  mkdir -p "$GEMINI_DIR"
+  TOML_FILE_REVIEW="$GEMINI_DIR/kodus-review.toml"
+  cat > "$TOML_FILE_REVIEW" << 'TOMLEOF'
+description = "Review code with Kodus CLI"
+prompt = """
+TOMLEOF
+  printf "%s\n" "$SKILL_CONTENT_REVIEW" >> "$TOML_FILE_REVIEW"
+  printf "\n\"\"\"\n" >> "$TOML_FILE_REVIEW"
+  print_success "Gemini CLI command installed (kodus-review)"
+  OPTIONAL_INSTALLED=$((OPTIONAL_INSTALLED + 1))
+
+  TOML_FILE_RESOLVE="$GEMINI_DIR/kodus-pr-suggestions-resolver.toml"
+  cat > "$TOML_FILE_RESOLVE" << 'TOMLEOF'
+description = "Resolve PR suggestions with Kodus CLI"
+prompt = """
+TOMLEOF
+  printf "%s\n" "$SKILL_CONTENT_RESOLVE" >> "$TOML_FILE_RESOLVE"
+  printf "\n\"\"\"\n" >> "$TOML_FILE_RESOLVE"
+  print_success "Gemini CLI command installed (kodus-pr-suggestions-resolver)"
+  OPTIONAL_INSTALLED=$((OPTIONAL_INSTALLED + 1))
+fi
+
+printf "\n"
+
+if [ "$OPTIONAL_INSTALLED" -eq 0 ]; then
+  print_dim "No additional tool locations detected."
+  print_dim "Create a tool's skills directory and rerun to install automatically."
+fi
+
+print_header "Done"
+print_info "Usage: kodus review [files...]"
+print_info "Usage: kodus pr suggestions --pr-url <url>"
+printf "\n"

@@ -1,0 +1,19 @@
+{
+  "rewrites": [
+    {
+      "source": "/install",
+      "destination": "/install"
+    }
+  ],
+  "headers": [
+    {
+      "source": "/install",
+      "headers": [
+        {
+          "key": "Content-Type",
+          "value": "application/x-shellscript"
+        }
+      ]
+    }
+  ]
+}
