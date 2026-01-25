@@ -319,8 +319,17 @@ maybe_install_project_skill "${PWD}/.factory/skills" "Droid" "kodus-review" "$SK
 maybe_install_project_skill "${PWD}/.factory/skills" "Droid" "kodus-pr-suggestions-resolver" "$SKILL_CONTENT_RESOLVE"
 maybe_install_project_skill "${PWD}/.windsurf/skills" "Windsurf" "kodus-review" "$SKILL_CONTENT_REVIEW"
 maybe_install_project_skill "${PWD}/.windsurf/skills" "Windsurf" "kodus-pr-suggestions-resolver" "$SKILL_CONTENT_RESOLVE"
-maybe_install_project_skill "${PWD}/.aider-desk/skills" "AiderDesk" "kodus-review" "$SKILL_CONTENT_REVIEW"
-maybe_install_project_skill "${PWD}/.aider-desk/skills" "AiderDesk" "kodus-pr-suggestions-resolver" "$SKILL_CONTENT_RESOLVE"
+# AiderDesk project commands
+if [ -d "${PWD}/.aider-desk" ]; then
+  AIDERDESK_PROJECT_CMD_DIR="${PWD}/.aider-desk/commands"
+  mkdir -p "$AIDERDESK_PROJECT_CMD_DIR"
+  printf "%s\n" "$SKILL_CONTENT_REVIEW" > "$AIDERDESK_PROJECT_CMD_DIR/kodus-review.md"
+  print_success "AiderDesk project command installed (kodus-review)"
+  OPTIONAL_INSTALLED=$((OPTIONAL_INSTALLED + 1))
+  printf "%s\n" "$SKILL_CONTENT_RESOLVE" > "$AIDERDESK_PROJECT_CMD_DIR/kodus-pr-suggestions-resolver.md"
+  print_success "AiderDesk project command installed (kodus-pr-suggestions-resolver)"
+  OPTIONAL_INSTALLED=$((OPTIONAL_INSTALLED + 1))
+fi
 
 # Claude Code (project commands)
 if [ -d "${PWD}/.claude" ]; then
@@ -439,10 +448,16 @@ if [ -d "$HOME/.codeium/windsurf/skills" ]; then
   install_skill "$HOME/.codeium/windsurf/skills" "Windsurf" "kodus-pr-suggestions-resolver" "$SKILL_CONTENT_RESOLVE"
 fi
 
-# AiderDesk (skills folder)
-if [ -d "$HOME/.aider-desk/skills" ]; then
-  install_skill "$HOME/.aider-desk/skills" "AiderDesk" "kodus-review" "$SKILL_CONTENT_REVIEW"
-  install_skill "$HOME/.aider-desk/skills" "AiderDesk" "kodus-pr-suggestions-resolver" "$SKILL_CONTENT_RESOLVE"
+# AiderDesk (commands folder)
+if [ -d "$HOME/.aider-desk" ]; then
+  AIDERDESK_CMD_DIR="$HOME/.aider-desk/commands"
+  mkdir -p "$AIDERDESK_CMD_DIR"
+  printf "%s\n" "$SKILL_CONTENT_REVIEW" > "$AIDERDESK_CMD_DIR/kodus-review.md"
+  print_success "AiderDesk command installed (kodus-review)"
+  OPTIONAL_INSTALLED=$((OPTIONAL_INSTALLED + 1))
+  printf "%s\n" "$SKILL_CONTENT_RESOLVE" > "$AIDERDESK_CMD_DIR/kodus-pr-suggestions-resolver.md"
+  print_success "AiderDesk command installed (kodus-pr-suggestions-resolver)"
+  OPTIONAL_INSTALLED=$((OPTIONAL_INSTALLED + 1))
 fi
 
 # OpenCode (command folder)
