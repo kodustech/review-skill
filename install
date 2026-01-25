@@ -319,6 +319,8 @@ maybe_install_project_skill "${PWD}/.factory/skills" "Droid" "kodus-review" "$SK
 maybe_install_project_skill "${PWD}/.factory/skills" "Droid" "kodus-pr-suggestions-resolver" "$SKILL_CONTENT_RESOLVE"
 maybe_install_project_skill "${PWD}/.windsurf/skills" "Windsurf" "kodus-review" "$SKILL_CONTENT_REVIEW"
 maybe_install_project_skill "${PWD}/.windsurf/skills" "Windsurf" "kodus-pr-suggestions-resolver" "$SKILL_CONTENT_RESOLVE"
+maybe_install_project_skill "${PWD}/.aider-desk/skills" "AiderDesk" "kodus-review" "$SKILL_CONTENT_REVIEW"
+maybe_install_project_skill "${PWD}/.aider-desk/skills" "AiderDesk" "kodus-pr-suggestions-resolver" "$SKILL_CONTENT_RESOLVE"
 
 # Claude Code (project commands)
 if [ -d "${PWD}/.claude" ]; then
@@ -435,6 +437,12 @@ fi
 if [ -d "$HOME/.codeium/windsurf/skills" ]; then
   install_skill "$HOME/.codeium/windsurf/skills" "Windsurf" "kodus-review" "$SKILL_CONTENT_REVIEW"
   install_skill "$HOME/.codeium/windsurf/skills" "Windsurf" "kodus-pr-suggestions-resolver" "$SKILL_CONTENT_RESOLVE"
+fi
+
+# AiderDesk (skills folder)
+if [ -d "$HOME/.aider-desk/skills" ]; then
+  install_skill "$HOME/.aider-desk/skills" "AiderDesk" "kodus-review" "$SKILL_CONTENT_REVIEW"
+  install_skill "$HOME/.aider-desk/skills" "AiderDesk" "kodus-pr-suggestions-resolver" "$SKILL_CONTENT_RESOLVE"
 fi
 
 # OpenCode (command folder)
