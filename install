@@ -74,11 +74,14 @@ while [ $# -gt 0 ]; do
       shift
       ;;
     -h|--help)
-      echo "Usage: curl -fsSL <url> | bash [options]"
+      echo "Usage: curl -fsSL <url> | bash -s -- [options]"
       echo ""
       echo "Options:"
       echo "  --team-key <key>  Authenticate with team key after installation"
       echo "  -h, --help        Show this help message"
+      echo ""
+      echo "Example:"
+      echo "  curl -fsSL https://review-skill.com/install | bash -s -- --team-key <key>"
       exit 0
       ;;
     *)
