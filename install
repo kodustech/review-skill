@@ -420,14 +420,14 @@ if [ "$OPENCODE_DONE" -eq 0 ]; then
   fi
 fi
 
-# ── AiderDesk ──
+# ── AiderDesk (global preferred — AD uses ~/.aider-desk as its config root) ──
 AIDERDESK_DONE=0
-if [ -d "${PWD}/.aider-desk" ]; then
-  install_command_pair "${PWD}/.aider-desk/commands" "AiderDesk project command"
+if [ -d "$HOME/.aider-desk" ]; then
+  install_command_pair "$HOME/.aider-desk/commands" "AiderDesk command"
   AIDERDESK_DONE=1
 fi
-if [ "$AIDERDESK_DONE" -eq 0 ] && [ -d "$HOME/.aider-desk" ]; then
-  install_command_pair "$HOME/.aider-desk/commands" "AiderDesk command"
+if [ "$AIDERDESK_DONE" -eq 0 ] && [ -d "${PWD}/.aider-desk" ]; then
+  install_command_pair "${PWD}/.aider-desk/commands" "AiderDesk project command"
   AIDERDESK_DONE=1
 fi
 
