@@ -3,7 +3,7 @@ set -e
 
 # Kodus CLI installer
 # Installs Kodus CLI if not present, authenticates with team key if provided,
-# and installs the kodus-review skill into project skill directories for Cursor,
+# and installs Kodus skills into project skill directories for Cursor,
 # Claude Code, and other supported tools.
 
 # Colors (only if stdout is a TTY)
@@ -97,35 +97,28 @@ printf "\n"
 
 print_info "Checking Kodus CLI installation..."
 
-# Check if kodus is installed
+# Check if kodus is installed (before update)
+KODUS_WAS_INSTALLED=0
 if command -v kodus >/dev/null 2>&1; then
   KODUS_VERSION=$(kodus --version 2>/dev/null || echo "unknown")
   print_success "Kodus CLI is already installed (${KODUS_VERSION})"
+  KODUS_WAS_INSTALLED=1
+fi
+
+print_info "Updating Kodus CLI..."
+if command -v npm >/dev/null 2>&1; then
+  npm install -g @kodus/cli
 else
-  print_info "Installing Kodus CLI..."
-  
-  # Detect OS
-  OS="$(uname -s)"
-  case "${OS}" in
-    Linux*)     MACHINE=Linux;;
-    Darwin*)    MACHINE=Mac;;
-    *)          MACHINE="UNKNOWN:${OS}"
-  esac
+  print_error "npm is required but not installed"
+  print_dim "Please install Node.js from https://nodejs.org"
+  exit 1
+fi
 
-  if [ "$MACHINE" = "UNKNOWN:${OS}" ]; then
-    print_error "Unsupported OS: ${OS}"
-    exit 1
-  fi
-
-  # Install via npm
-  if command -v npm >/dev/null 2>&1; then
-    npm install -g @kodus/cli
-    print_success "Kodus CLI installed successfully"
-  else
-    print_error "npm is required but not installed"
-    print_dim "Please install Node.js from https://nodejs.org"
-    exit 1
-  fi
+KODUS_VERSION=$(kodus --version 2>/dev/null || echo "unknown")
+if [ "$KODUS_WAS_INSTALLED" -eq 1 ]; then
+  print_success "Kodus CLI updated successfully (${KODUS_VERSION})"
+else
+  print_success "Kodus CLI installed successfully (${KODUS_VERSION})"
 fi
 
 printf "\n"
@@ -268,6 +261,59 @@ Provide a concise report covering:
 '
 fi
 
+# Prepare business-rules-validation skill content from local file
+if [ -f "./skills/business-rules-validation/SKILL.md" ]; then
+  SKILL_CONTENT_BUSINESS=$(cat "./skills/business-rules-validation/SKILL.md")
+elif [ -f "${PWD}/skills/business-rules-validation/SKILL.md" ]; then
+  SKILL_CONTENT_BUSINESS=$(cat "${PWD}/skills/business-rules-validation/SKILL.md")
+else
+  # Fallback: use skill content inline
+  SKILL_CONTENT_BUSINESS='---
+name: business-rules-validation
+description: Use when asked for business validation, acceptance-criteria validation, PR-vs-task checks, or merge readiness with task compliance. Run `kodus pr business-validation` against local diff scope and optional task context.
+---
+
+# Business Rules Validation
+
+## Goal
+
+Run Kodus business-rules validation from local repository diff scope and optional task reference.
+
+## Workflow
+
+1) Ensure Kodus CLI is available.
+- Run `kodus --help` to confirm.
+- If missing, ask the user to install the CLI and stop.
+
+2) Ensure authentication if required.
+- If command fails with auth, run `kodus auth login` (interactive) and retry.
+- For team keys, use `kodus auth team-key --key <key>` when provided by the user.
+
+3) Choose local diff scope.
+- Default (no scope flags): working tree diff.
+- Optional explicit scope: `--staged`, `--branch <name>`, `--commit <sha>`, or `[files...]`.
+- Use only one scope per command.
+
+4) Run business validation.
+- Examples:
+```bash
+kodus pr business-validation --staged --task-id KC-1441
+kodus pr business-validation --branch main --task-id KC-1441
+kodus pr business-validation src/service.ts src/use-case.ts --task-id KC-1441
+```
+
+5) Interpret and apply.
+- Parse output and identify mismatches against requirements.
+- Apply focused changes.
+- Re-run the same command until output is acceptable.
+
+## Notes
+
+- Use `--task-id` or `--task-url` when available.
+- `kodus review` and business validation are different flows.
+'
+fi
+
 OPTIONAL_INSTALLED=0
 
 # ── Helper functions ──
@@ -320,6 +366,7 @@ install_skill_pair() {
   label="$2"
   install_as_skill "$base_dir" "$label" "kodus-review" "$SKILL_CONTENT_REVIEW"
   install_as_skill "$base_dir" "$label" "kodus-pr-suggestions-resolver" "$SKILL_CONTENT_RESOLVE"
+  install_as_skill "$base_dir" "$label" "business-rules-validation" "$SKILL_CONTENT_BUSINESS"
 }
 
 install_command_pair() {
@@ -327,6 +374,7 @@ install_command_pair() {
   label="$2"
   install_as_command "$base_dir" "$label" "kodus-review" "$SKILL_CONTENT_REVIEW"
   install_as_command "$base_dir" "$label" "kodus-pr-suggestions-resolver" "$SKILL_CONTENT_RESOLVE"
+  install_as_command "$base_dir" "$label" "business-rules-validation" "$SKILL_CONTENT_BUSINESS"
 }
 
 install_gemini_toml() {
@@ -360,8 +408,8 @@ install_gemini_toml() {
 # Tools that now use commands no longer need the skills copy.
 cleanup_legacy_skill() {
   skill_dir="$1"
-  if [ -d "$skill_dir/kodus-review" ] || [ -d "$skill_dir/kodus-pr-suggestions-resolver" ]; then
-    rm -rf "$skill_dir/kodus-review" "$skill_dir/kodus-pr-suggestions-resolver"
+  if [ -d "$skill_dir/kodus-review" ] || [ -d "$skill_dir/kodus-pr-suggestions-resolver" ] || [ -d "$skill_dir/business-rules-validation" ]; then
+    rm -rf "$skill_dir/kodus-review" "$skill_dir/kodus-pr-suggestions-resolver" "$skill_dir/business-rules-validation"
     print_dim "Cleaned up legacy duplicates in $skill_dir"
   fi
 }
@@ -567,6 +615,17 @@ if [ "$WINDSURF_DONE" -eq 0 ]; then
       printf "\n" >> "$RULES_FILE"
       print_success "Windsurf updated (kodus-pr-suggestions-resolver)"
     fi
+    if [ -f "$RULES_FILE" ] && grep -q "# Kodus Business Rules Validation" "$RULES_FILE"; then
+      print_success "Windsurf already updated (business-rules-validation)"
+    else
+      if [ -f "$RULES_FILE" ]; then
+        printf "\n" >> "$RULES_FILE"
+      fi
+      printf "%s\n\n" "# Kodus Business Rules Validation" >> "$RULES_FILE"
+      printf "%s\n" "$SKILL_CONTENT_BUSINESS" >> "$RULES_FILE"
+      printf "\n" >> "$RULES_FILE"
+      print_success "Windsurf updated (business-rules-validation)"
+    fi
     OPTIONAL_INSTALLED=$((OPTIONAL_INSTALLED + 1))
     WINDSURF_DONE=1
   fi
@@ -584,6 +643,7 @@ if [ "$GEMINI_DONE" -eq 0 ]; then
     mkdir -p "$GEMINI_DIR"
     install_gemini_toml "$GEMINI_DIR/kodus-review.toml" "Gemini CLI command" "kodus-review" "Review code with Kodus CLI" "$SKILL_CONTENT_REVIEW"
     install_gemini_toml "$GEMINI_DIR/kodus-pr-suggestions-resolver.toml" "Gemini CLI command" "kodus-pr-suggestions-resolver" "Resolve PR suggestions with Kodus CLI" "$SKILL_CONTENT_RESOLVE"
+    install_gemini_toml "$GEMINI_DIR/business-rules-validation.toml" "Gemini CLI command" "business-rules-validation" "Validate PR business rules with Kodus CLI" "$SKILL_CONTENT_BUSINESS"
     GEMINI_DONE=1
   fi
 fi
@@ -598,4 +658,5 @@ fi
 print_header "Done"
 print_info "Usage: kodus review [files...]"
 print_info "Usage: kodus pr suggestions --pr-url <url>"
+print_info "Usage: kodus pr business-validation --staged --task-id <id>"
 printf "\n"

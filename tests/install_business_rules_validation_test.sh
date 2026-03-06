@@ -1,0 +1,56 @@
+#!/bin/sh
+set -eu
+
+REPO_ROOT=$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)
+TMPDIR=$(mktemp -d)
+trap 'rm -rf "$TMPDIR"' EXIT INT TERM
+
+mkdir -p "$TMPDIR/work/skills"
+cp "$REPO_ROOT/install" "$TMPDIR/work/install"
+cp -R "$REPO_ROOT/skills/business-rules-validation" "$TMPDIR/work/skills/"
+cp -R "$REPO_ROOT/skills/kodus-pr-suggestions-resolver" "$TMPDIR/work/skills/"
+chmod +x "$TMPDIR/work/install"
+
+mkdir -p "$TMPDIR/work/.claude"
+mkdir -p "$TMPDIR/home"
+mkdir -p "$TMPDIR/mockbin"
+NPM_CALLS_LOG="$TMPDIR/npm_calls.log"
+
+cat > "$TMPDIR/mockbin/kodus" <<'EOF'
+#!/bin/sh
+if [ "${1:-}" = "--version" ]; then
+  echo "kodus 0.0.0-test"
+fi
+exit 0
+EOF
+chmod +x "$TMPDIR/mockbin/kodus"
+
+cat > "$TMPDIR/mockbin/npm" <<EOF
+#!/bin/sh
+printf "%s\n" "\$*" >> "$NPM_CALLS_LOG"
+exit 0
+EOF
+chmod +x "$TMPDIR/mockbin/npm"
+
+(
+  cd "$TMPDIR/work"
+  HOME="$TMPDIR/home" PATH="$TMPDIR/mockbin:$PATH" ./install >/dev/null
+)
+
+TARGET="$TMPDIR/work/.claude/commands/business-rules-validation.md"
+if [ ! -f "$TARGET" ]; then
+  echo "Expected $TARGET to exist after install."
+  exit 1
+fi
+
+if ! grep -q "name: business-rules-validation" "$TARGET"; then
+  echo "Expected business-rules-validation command content in $TARGET."
+  exit 1
+fi
+
+if [ ! -f "$NPM_CALLS_LOG" ] || ! grep -q '^install -g @kodus/cli$' "$NPM_CALLS_LOG"; then
+  echo "Expected npm to be called with: install -g @kodus/cli"
+  exit 1
+fi
+
+echo "PASS: business-rules-validation command installed"
