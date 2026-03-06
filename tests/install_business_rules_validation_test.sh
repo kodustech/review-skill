@@ -15,6 +15,8 @@ mkdir -p "$TMPDIR/work/.claude"
 mkdir -p "$TMPDIR/home"
 mkdir -p "$TMPDIR/mockbin"
 NPM_CALLS_LOG="$TMPDIR/npm_calls.log"
+mkdir -p "$TMPDIR/work/.claude/commands"
+echo "legacy" > "$TMPDIR/work/.claude/commands/business-rules-validation.md"
 
 cat > "$TMPDIR/mockbin/kodus" <<'EOF'
 #!/bin/sh
@@ -37,14 +39,19 @@ chmod +x "$TMPDIR/mockbin/npm"
   HOME="$TMPDIR/home" PATH="$TMPDIR/mockbin:$PATH" ./install >/dev/null
 )
 
-TARGET="$TMPDIR/work/.claude/commands/business-rules-validation.md"
+TARGET="$TMPDIR/work/.claude/commands/kodus-business-rules-validation.md"
 if [ ! -f "$TARGET" ]; then
   echo "Expected $TARGET to exist after install."
   exit 1
 fi
 
-if ! grep -q "name: business-rules-validation" "$TARGET"; then
-  echo "Expected business-rules-validation command content in $TARGET."
+if [ -f "$TMPDIR/work/.claude/commands/business-rules-validation.md" ]; then
+  echo "Expected legacy business-rules-validation.md to be removed."
+  exit 1
+fi
+
+if ! grep -q "name: kodus-business-rules-validation" "$TARGET"; then
+  echo "Expected kodus-business-rules-validation command content in $TARGET."
   exit 1
 fi
 
@@ -53,4 +60,4 @@ if [ ! -f "$NPM_CALLS_LOG" ] || ! grep -q '^install -g @kodus/cli$' "$NPM_CALLS_
   exit 1
 fi
 
-echo "PASS: business-rules-validation command installed"
+echo "PASS: kodus-business-rules-validation command installed"

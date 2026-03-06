@@ -269,7 +269,7 @@ elif [ -f "${PWD}/skills/business-rules-validation/SKILL.md" ]; then
 else
   # Fallback: use skill content inline
   SKILL_CONTENT_BUSINESS='---
-name: business-rules-validation
+name: kodus-business-rules-validation
 description: Use when asked for business validation, acceptance-criteria validation, PR-vs-task checks, or merge readiness with task compliance. Run `kodus pr business-validation` against local diff scope and optional task context.
 ---
 
@@ -313,6 +313,9 @@ kodus pr business-validation src/service.ts src/use-case.ts --task-id KC-1441
 - `kodus review` and business validation are different flows.
 '
 fi
+
+BUSINESS_SKILL_NAME="kodus-business-rules-validation"
+BUSINESS_SKILL_LEGACY_NAME="business-rules-validation"
 
 OPTIONAL_INSTALLED=0
 
@@ -364,17 +367,25 @@ install_as_command() {
 install_skill_pair() {
   base_dir="$1"
   label="$2"
+  if [ -d "$base_dir/$BUSINESS_SKILL_LEGACY_NAME" ]; then
+    rm -rf "$base_dir/$BUSINESS_SKILL_LEGACY_NAME"
+    print_dim "Removed legacy skill name ($BUSINESS_SKILL_LEGACY_NAME)"
+  fi
   install_as_skill "$base_dir" "$label" "kodus-review" "$SKILL_CONTENT_REVIEW"
   install_as_skill "$base_dir" "$label" "kodus-pr-suggestions-resolver" "$SKILL_CONTENT_RESOLVE"
-  install_as_skill "$base_dir" "$label" "business-rules-validation" "$SKILL_CONTENT_BUSINESS"
+  install_as_skill "$base_dir" "$label" "$BUSINESS_SKILL_NAME" "$SKILL_CONTENT_BUSINESS"
 }
 
 install_command_pair() {
   base_dir="$1"
   label="$2"
+  if [ -f "$base_dir/$BUSINESS_SKILL_LEGACY_NAME.md" ]; then
+    rm -f "$base_dir/$BUSINESS_SKILL_LEGACY_NAME.md"
+    print_dim "Removed legacy command name ($BUSINESS_SKILL_LEGACY_NAME)"
+  fi
   install_as_command "$base_dir" "$label" "kodus-review" "$SKILL_CONTENT_REVIEW"
   install_as_command "$base_dir" "$label" "kodus-pr-suggestions-resolver" "$SKILL_CONTENT_RESOLVE"
-  install_as_command "$base_dir" "$label" "business-rules-validation" "$SKILL_CONTENT_BUSINESS"
+  install_as_command "$base_dir" "$label" "$BUSINESS_SKILL_NAME" "$SKILL_CONTENT_BUSINESS"
 }
 
 install_gemini_toml() {
@@ -408,8 +419,8 @@ install_gemini_toml() {
 # Tools that now use commands no longer need the skills copy.
 cleanup_legacy_skill() {
   skill_dir="$1"
-  if [ -d "$skill_dir/kodus-review" ] || [ -d "$skill_dir/kodus-pr-suggestions-resolver" ] || [ -d "$skill_dir/business-rules-validation" ]; then
-    rm -rf "$skill_dir/kodus-review" "$skill_dir/kodus-pr-suggestions-resolver" "$skill_dir/business-rules-validation"
+  if [ -d "$skill_dir/kodus-review" ] || [ -d "$skill_dir/kodus-pr-suggestions-resolver" ] || [ -d "$skill_dir/$BUSINESS_SKILL_LEGACY_NAME" ] || [ -d "$skill_dir/$BUSINESS_SKILL_NAME" ]; then
+    rm -rf "$skill_dir/kodus-review" "$skill_dir/kodus-pr-suggestions-resolver" "$skill_dir/$BUSINESS_SKILL_LEGACY_NAME" "$skill_dir/$BUSINESS_SKILL_NAME"
     print_dim "Cleaned up legacy duplicates in $skill_dir"
   fi
 }
@@ -615,8 +626,8 @@ if [ "$WINDSURF_DONE" -eq 0 ]; then
       printf "\n" >> "$RULES_FILE"
       print_success "Windsurf updated (kodus-pr-suggestions-resolver)"
     fi
-    if [ -f "$RULES_FILE" ] && grep -q "# Kodus Business Rules Validation" "$RULES_FILE"; then
-      print_success "Windsurf already updated (business-rules-validation)"
+    if [ -f "$RULES_FILE" ] && grep -q "name: $BUSINESS_SKILL_NAME" "$RULES_FILE"; then
+      print_success "Windsurf already updated ($BUSINESS_SKILL_NAME)"
     else
       if [ -f "$RULES_FILE" ]; then
         printf "\n" >> "$RULES_FILE"
@@ -624,7 +635,7 @@ if [ "$WINDSURF_DONE" -eq 0 ]; then
       printf "%s\n\n" "# Kodus Business Rules Validation" >> "$RULES_FILE"
       printf "%s\n" "$SKILL_CONTENT_BUSINESS" >> "$RULES_FILE"
       printf "\n" >> "$RULES_FILE"
-      print_success "Windsurf updated (business-rules-validation)"
+      print_success "Windsurf updated ($BUSINESS_SKILL_NAME)"
     fi
     OPTIONAL_INSTALLED=$((OPTIONAL_INSTALLED + 1))
     WINDSURF_DONE=1
@@ -643,7 +654,7 @@ if [ "$GEMINI_DONE" -eq 0 ]; then
     mkdir -p "$GEMINI_DIR"
     install_gemini_toml "$GEMINI_DIR/kodus-review.toml" "Gemini CLI command" "kodus-review" "Review code with Kodus CLI" "$SKILL_CONTENT_REVIEW"
     install_gemini_toml "$GEMINI_DIR/kodus-pr-suggestions-resolver.toml" "Gemini CLI command" "kodus-pr-suggestions-resolver" "Resolve PR suggestions with Kodus CLI" "$SKILL_CONTENT_RESOLVE"
-    install_gemini_toml "$GEMINI_DIR/business-rules-validation.toml" "Gemini CLI command" "business-rules-validation" "Validate PR business rules with Kodus CLI" "$SKILL_CONTENT_BUSINESS"
+    install_gemini_toml "$GEMINI_DIR/$BUSINESS_SKILL_NAME.toml" "Gemini CLI command" "$BUSINESS_SKILL_NAME" "Validate PR business rules with Kodus CLI" "$SKILL_CONTENT_BUSINESS"
     GEMINI_DONE=1
   fi
 fi

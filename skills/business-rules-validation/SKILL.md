@@ -1,5 +1,5 @@
 ---
-name: business-rules-validation
+name: kodus-business-rules-validation
 description: Use when asked for business validation, acceptance-criteria validation, PR-vs-task checks, or merge readiness with task compliance. Run `kodus pr business-validation` against local diff scope and optional task context.
 ---
 
